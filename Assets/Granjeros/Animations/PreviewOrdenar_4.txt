@@ -1,0 +1,5 @@
+Tiempo: 3,45
+Renderers: 2
+Bounds center: (0.00, 0.03, 0.06)
+Bounds size: (0.68, 1.91, 0.69)
+Camera: (0.00, 0.13, 4.35)
