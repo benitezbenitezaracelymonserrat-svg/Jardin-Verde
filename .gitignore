@@ -8,6 +8,35 @@
 /Build/
 /Builds/
 
+# Proyecto fuente del menú: conservar Assets, ignorar cachés y copias locales
+/Aldea_menu/Library/
+/Aldea_menu/Temp/
+/Aldea_menu/Obj/
+/Aldea_menu/Logs/
+/Aldea_menu/UserSettings/
+/Aldea_menu/work/
+/Aldea_menu/Backups/
+/Aldea_menu/*.sln
+/Aldea_menu/*.slnx
+/Aldea_menu/*.csproj
+
+# De Aldea_menu sólo se versionan los dos paquetes de recursos integrados.
+/Aldea_menu/*
+!/Aldea_menu/Assets/
+/Aldea_menu/Assets/*
+!/Aldea_menu/Assets/Audio/
+!/Aldea_menu/Assets/Audio/**
+!/Aldea_menu/Assets/imagenes/
+!/Aldea_menu/Assets/imagenes/**
+
+# Variantes visuales no referenciadas por el menú integrado.
+/Aldea_menu/Assets/imagenes/SliderKnobWood.png
+/Aldea_menu/Assets/imagenes/SliderKnobWood.png.meta
+/Aldea_menu/Assets/imagenes/SliderRailWood.png
+/Aldea_menu/Assets/imagenes/SliderRailWood.png.meta
+/Aldea_menu/Assets/imagenes/volver.png
+/Aldea_menu/Assets/imagenes/volver.png.meta
+
 # Local editor and IDE state
 /.vs/
 /.vscode/

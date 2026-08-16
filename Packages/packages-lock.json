@@ -1,5 +1,17 @@
 {
   "dependencies": {
+    "com.jardinverde.menu-audio": {
+      "version": "file:../Aldea_menu/Assets/Audio",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
+    "com.jardinverde.menu-images": {
+      "version": "file:../Aldea_menu/Assets/imagenes",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
     "com.unity.2d.sprite": {
       "version": "1.0.0",
       "depth": 0,

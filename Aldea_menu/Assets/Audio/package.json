@@ -1,0 +1,7 @@
+{
+  "name": "com.jardinverde.menu-audio",
+  "version": "1.0.0",
+  "displayName": "Jardín Verde - Audio del menú",
+  "description": "Música y efectos originales del menú principal de Jardín Verde.",
+  "unity": "6000.3"
+}
