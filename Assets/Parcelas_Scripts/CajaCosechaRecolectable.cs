@@ -9,6 +9,8 @@ public class CajaCosechaRecolectable : MonoBehaviour
     private bool recogida;
     private ZonaCosechaNivel2 zonaCosecha;
 
+    public ZonaCosechaNivel2 ZonaCosecha => zonaCosecha;
+
     public bool EstaDisponible =>
         !recogida &&
         gameObject.activeInHierarchy &&

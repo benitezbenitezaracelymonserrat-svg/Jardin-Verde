@@ -41,6 +41,21 @@ public class SlotParcela : MonoBehaviour
 
     void Awake()
     {
+        // La jerarquia manda sobre una referencia vieja del Inspector.
+        // De esta manera un slot hijo de HuertaTomate nunca puede llamar a
+        // ParcelaZanahoria aunque se haya duplicado con esa referencia.
+        MonoBehaviour[] componentesPadres =
+            GetComponentsInParent<MonoBehaviour>(true);
+
+        foreach (MonoBehaviour componente in componentesPadres)
+        {
+            if (componente is IParcela)
+            {
+                parcelaComponente = componente;
+                break;
+            }
+        }
+
         parcela = parcelaComponente as IParcela;
         parcelaConsultable = parcelaComponente as IParcelaConsultable;
 

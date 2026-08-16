@@ -6,6 +6,20 @@ public class CinematicaIntro : MonoBehaviour
     public static event System.Action CinematicaIniciada;
     public static event System.Action CinematicaTerminada;
 
+    // Las cinemáticas de los niveles 2 y 3 reutilizan estas notificaciones
+    // para ocultar la interfaz y abrir el manual al terminar.
+    public static void NotificarInicioExterno()
+    {
+        cinematicaActiva = true;
+        CinematicaIniciada?.Invoke();
+    }
+
+    public static void NotificarFinExterno()
+    {
+        cinematicaActiva = false;
+        CinematicaTerminada?.Invoke();
+    }
+
     [Header("Camaras")]
     public Camera camaraCinematica;
     public GameObject jugador;
@@ -22,12 +36,23 @@ public class CinematicaIntro : MonoBehaviour
     {
         cinematicaActiva = true;
         CinematicaIniciada?.Invoke();
+
+        if (audioSource == null)
+            audioSource = GetComponent<AudioSource>();
+
         if (jugador != null)
             jugador.SetActive(false);
         if (camaraCinematica != null)
             camaraCinematica.gameObject.SetActive(true);
         if (audioSource != null && clipIntro != null)
-            audioSource.PlayOneShot(clipIntro);
+        {
+            audioSource.Stop();
+            audioSource.playOnAwake = false;
+            audioSource.spatialBlend = 0f;
+            audioSource.dopplerLevel = 0f;
+            audioSource.clip = clipIntro;
+            audioSource.Play();
+        }
         StartCoroutine(Reproducir());
     }
     IEnumerator Reproducir()
