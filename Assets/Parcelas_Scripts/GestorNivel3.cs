@@ -21,8 +21,19 @@ public class GestorNivel3 : MonoBehaviour
         public int precio;
     }
 
+    private class RegistroVenta
+    {
+        public string producto;
+        public int cantidad;
+        public int ganancia;
+        public int totalAcumulado;
+    }
+
     public static GestorNivel3 Instancia { get; private set; }
     public static bool NivelActivo => Instancia != null && Instancia.nivelActivo;
+    public static float Progreso01 => Instancia != null
+        ? Mathf.Clamp01(Instancia.clientesAtendidos / (float)ObjetivoClientes)
+        : 0f;
 
     private const int ObjetivoClientes = 5;
     private const int CantidadClientesFila = 10;
@@ -51,6 +62,8 @@ public class GestorNivel3 : MonoBehaviour
     private readonly List<Vector3> posicionesFila = new List<Vector3>();
     private readonly List<PedidoProducto> pedidoActual =
         new List<PedidoProducto>();
+    private readonly List<RegistroVenta> historialVentas =
+        new List<RegistroVenta>();
 
     private bool nivelActivo;
     private bool jugadorEnZona;
@@ -61,9 +74,13 @@ public class GestorNivel3 : MonoBehaviour
     private Transform puntoInicioFila;
     private Transform puntoFinal;
     private Transform puntoSalida;
+    private Transform puntoAtencion;
     private Transform clienteActual;
     private InventarioProductos inventario;
     private InventoryManager inventarioUI;
+    private Camera camaraVentas;
+    private Transform contenidoHistorial;
+    private int numeroVenta;
 
     private GameObject botonDesafios;
     private GameObject panelDesafios;
@@ -71,6 +88,7 @@ public class GestorNivel3 : MonoBehaviour
     private TextMeshProUGUI textoProgreso;
     private TextMeshProUGUI textoFinal;
     private TextMeshProUGUI textoMonedas;
+    private TextMeshProUGUI textoTotalHistorial;
     private GameObject nubePedido;
     private Transform contenidoIconosNube;
     private TextMeshProUGUI textoNube;
@@ -95,6 +113,11 @@ public class GestorNivel3 : MonoBehaviour
 
         Instancia = this;
         ConfigurarVisibilidadZonaVentas(false);
+    }
+
+    private void OnDestroy()
+    {
+        CinematicaIntro.CinematicaTerminada -= AlTerminarCinematicaNivel3;
     }
 
 #if UNITY_EDITOR
@@ -160,6 +183,80 @@ public class GestorNivel3 : MonoBehaviour
             Instancia.IntentarVender(producto);
     }
 
+    public static void RefrescarHistorialGlobal()
+    {
+        if (NivelActivo)
+            Instancia.RefrescarHistorialVentas();
+    }
+
+    public static void AbrirInventarioParaVentasGlobal()
+    {
+        if (NivelActivo)
+            Instancia.AbrirInventarioParaVentas();
+    }
+
+    public static bool ObtenerPoseCamaraVentas(
+        out Vector3 posicion,
+        out Quaternion rotacion)
+    {
+        Transform atencion = Instancia != null && Instancia.puntoAtencion != null
+            ? Instancia.puntoAtencion
+            : BuscarTransformPorNombre("Atencionalcliente");
+        Transform cliente = Instancia != null ? Instancia.clienteActual : null;
+        Transform inicio = Instancia != null && Instancia.puntoInicioFila != null
+            ? Instancia.puntoInicioFila
+            : BuscarTransformPorNombre("PuntoInicioFila");
+        Transform final = Instancia != null && Instancia.puntoFinal != null
+            ? Instancia.puntoFinal
+            : BuscarTransformPorNombre("PuntoFinal01");
+
+        posicion = Vector3.zero;
+        rotacion = Quaternion.identity;
+
+        if (atencion == null || (cliente == null && inicio == null && final == null))
+            return false;
+
+        Transform frente = cliente != null
+            ? cliente
+            : inicio == null ? final :
+              final == null ? inicio :
+              Vector3.SqrMagnitude(inicio.position - atencion.position) <=
+              Vector3.SqrMagnitude(final.position - atencion.position)
+                  ? inicio
+                  : final;
+
+        Vector3 caraCliente = frente.position + Vector3.up * 1.55f;
+        Renderer[] renderers = frente.GetComponentsInChildren<Renderer>(false);
+        if (renderers.Length > 0)
+        {
+            Bounds limites = renderers[0].bounds;
+            for (int i = 1; i < renderers.Length; i++)
+                limites.Encapsulate(renderers[i].bounds);
+
+            caraCliente = new Vector3(
+                limites.center.x,
+                Mathf.Lerp(limites.center.y, limites.max.y, 0.72f),
+                limites.center.z
+            );
+        }
+
+        Vector3 haciaPuesto = atencion.position - frente.position;
+        haciaPuesto.y = 0f;
+        if (haciaPuesto.sqrMagnitude < 0.001f)
+            haciaPuesto = frente.forward;
+        haciaPuesto.Normalize();
+
+        // La pose nace desde el cliente, no desde el interior del puesto.
+        // Asi la camara queda delante de su cara y fuera del toldo.
+        posicion = caraCliente + haciaPuesto * 0.9f + Vector3.up * 0.04f;
+        Vector3 objetivo = caraCliente + Vector3.up * 0.32f;
+        Vector3 direccion = objetivo - posicion;
+        rotacion = direccion.sqrMagnitude > 0.001f
+            ? Quaternion.LookRotation(direccion.normalized, Vector3.up)
+            : atencion.rotation;
+        return true;
+    }
+
     public static void NotificarJugadorEnZona(bool dentro)
     {
         if (!NivelActivo)
@@ -180,6 +277,7 @@ public class GestorNivel3 : MonoBehaviour
         monedas = 0;
         clientesAtendidos = 0;
         jugadorEnZona = false;
+        historialVentas.Clear();
 
         // El puesto, los clientes y la zona de atencion existen desde el
         // principio del mapa, pero solamente se muestran en el nivel 3.
@@ -194,13 +292,19 @@ public class GestorNivel3 : MonoBehaviour
         puntoInicioFila = BuscarTransformPorNombre("PuntoInicioFila");
         puntoFinal = BuscarTransformPorNombre("PuntoFinal01");
         puntoSalida = BuscarTransformPorNombre("PuntoSalidaCliente");
+        puntoAtencion = BuscarTransformPorNombre("Atencionalcliente");
 
         ConfigurarZonaAtencion();
         PrepararFilaClientes();
         TeletransportarJugador();
         ConstruirInterfaz();
+        ConfigurarHistorialVentas();
         CrearPedidoParaClienteActual();
         ActualizarInterfaz();
+
+        CinematicaIntro.CinematicaTerminada -= AlTerminarCinematicaNivel3;
+        CinematicaIntro.CinematicaTerminada += AlTerminarCinematicaNivel3;
+        CinematicaNiveles.ReproducirNivel3();
 
         Debug.Log("Nivel 3 iniciado: atende 5 clientes y vende desde el inventario.");
     }
@@ -285,9 +389,17 @@ public class GestorNivel3 : MonoBehaviour
             return;
         }
 
+        Vector3 referenciaFrente = puntoInicioFila.position;
+        if (puntoAtencion != null &&
+            Vector3.SqrMagnitude(puntoFinal.position - puntoAtencion.position) <
+            Vector3.SqrMagnitude(puntoInicioFila.position - puntoAtencion.position))
+        {
+            referenciaFrente = puntoFinal.position;
+        }
+
         clientes.Sort((a, b) =>
-            Vector3.SqrMagnitude(a.position - puntoFinal.position).CompareTo(
-                Vector3.SqrMagnitude(b.position - puntoFinal.position)
+            Vector3.SqrMagnitude(a.position - referenciaFrente).CompareTo(
+                Vector3.SqrMagnitude(b.position - referenciaFrente)
             )
         );
 
@@ -308,9 +420,20 @@ public class GestorNivel3 : MonoBehaviour
             );
 
         posicionesFila.Clear();
-        Vector3 inicioFila = puntoInicioFila.position;
-        Vector3 finalFila = puntoFinal.position;
-        inicioFila.y = finalFila.y;
+        Vector3 extremoA = puntoInicioFila.position;
+        Vector3 extremoB = puntoFinal.position;
+        Vector3 frenteFila = extremoA;
+        Vector3 fondoFila = extremoB;
+
+        if (puntoAtencion != null &&
+            Vector3.SqrMagnitude(extremoB - puntoAtencion.position) <
+            Vector3.SqrMagnitude(extremoA - puntoAtencion.position))
+        {
+            frenteFila = extremoB;
+            fondoFila = extremoA;
+        }
+
+        fondoFila.y = frenteFila.y;
 
         for (int i = 0; i < CantidadClientesFila; i++)
         {
@@ -318,7 +441,7 @@ public class GestorNivel3 : MonoBehaviour
                 ? 0f
                 : i / (float)(CantidadClientesFila - 1);
             posicionesFila.Add(
-                Vector3.Lerp(finalFila, inicioFila, t)
+                Vector3.Lerp(frenteFila, fondoFila, t)
             );
         }
 
@@ -398,6 +521,7 @@ public class GestorNivel3 : MonoBehaviour
 
         pedido.restante--;
         monedas += pedido.precio;
+        RegistrarVentaEnHistorial(pedido.tipo, 1, pedido.precio);
 
         ActualizarInterfaz();
         ActualizarNube();
@@ -508,14 +632,250 @@ public class GestorNivel3 : MonoBehaviour
 
     private void OrientarClienteAlPuesto(Transform cliente)
     {
-        if (cliente == null || puntoFinal == null)
+        if (cliente == null)
             return;
 
-        Vector3 direccion = puntoFinal.position - cliente.position;
+        Transform objetivo = puntoAtencion != null
+            ? puntoAtencion
+            : puntoInicioFila;
+
+        if (objetivo == null)
+            return;
+
+        Vector3 direccion = objetivo.position - cliente.position;
         direccion.y = 0f;
 
         if (direccion.sqrMagnitude > 0.001f)
             cliente.rotation = Quaternion.LookRotation(direccion);
+    }
+
+    private void AlTerminarCinematicaNivel3()
+    {
+        CinematicaIntro.CinematicaTerminada -= AlTerminarCinematicaNivel3;
+
+        if (!nivelActivo)
+            return;
+
+        ActivarCamaraVentas();
+        jugadorEnZona = true;
+        RefrescarInventario();
+        ActualizarNube();
+    }
+
+    private void ActivarCamaraVentas()
+    {
+        if (!ObtenerPoseCamaraVentas(out Vector3 posicion, out Quaternion rotacion))
+            return;
+
+        Camera principal = Camera.main;
+
+        if (camaraVentas == null)
+        {
+            Transform camaraCinematica =
+                BuscarTransformPorNombre("CameraCinematica");
+            if (camaraCinematica != null)
+                camaraVentas = camaraCinematica.GetComponent<Camera>();
+
+            if (camaraVentas == null)
+            {
+                GameObject objeto = new GameObject("CamaraFijaVentasNivel3");
+                camaraVentas = objeto.AddComponent<Camera>();
+                camaraVentas.tag = "Untagged";
+            }
+        }
+
+        if (principal != null && principal != camaraVentas)
+        {
+            camaraVentas.CopyFrom(principal);
+            camaraVentas.depth = principal.depth + 10f;
+        }
+
+        camaraVentas.nearClipPlane = 0.05f;
+        camaraVentas.fieldOfView = 72f;
+        camaraVentas.transform.SetPositionAndRotation(posicion, rotacion);
+
+        // La camara principal conserva el unico AudioListener. La camara de
+        // venta solo aporta la imagen y no debe crear audio duplicado.
+        AudioListener listenerVentas = camaraVentas.GetComponent<AudioListener>();
+        if (listenerVentas != null)
+            listenerVentas.enabled = false;
+
+        camaraVentas.gameObject.SetActive(true);
+        camaraVentas.enabled = true;
+
+        PlayerController jugador = FindFirstObjectByType<PlayerController>();
+        if (jugador != null)
+            jugador.enabled = false;
+    }
+
+    private void AbrirInventarioParaVentas()
+    {
+        InventarioUI controlador = FindFirstObjectByType<InventarioUI>();
+        if (controlador == null || controlador.panelInventario == null)
+        {
+            Debug.LogWarning("Nivel 3: no se encontro PanelInventario.");
+            return;
+        }
+
+        controlador.panelInventario.SetActive(true);
+        controlador.panelInventario.transform.SetAsLastSibling();
+
+        ControladorPestanas pestanas =
+            controlador.panelInventario.GetComponentInChildren<ControladorPestanas>(true);
+        if (pestanas == null)
+            pestanas = FindFirstObjectByType<ControladorPestanas>();
+
+        if (pestanas != null)
+            pestanas.MostrarProductos();
+
+        RefrescarInventario();
+    }
+
+    private void ConfigurarHistorialVentas()
+    {
+        contenidoHistorial = BuscarTransformPorNombre("ContentVentas");
+        numeroVenta = 0;
+        Transform total = BuscarTransformPorNombre("TextoTotal");
+        textoTotalHistorial = total != null
+            ? total.GetComponent<TextMeshProUGUI>()
+            : null;
+
+        if (contenidoHistorial == null)
+        {
+            Debug.LogWarning("Nivel 3: no se encontro ContentVentas.");
+            return;
+        }
+
+        VerticalLayoutGroup layout =
+            contenidoHistorial.GetComponent<VerticalLayoutGroup>();
+        if (layout == null)
+            layout = contenidoHistorial.gameObject.AddComponent<VerticalLayoutGroup>();
+
+        layout.padding = new RectOffset(8, 8, 8, 8);
+        layout.spacing = 5f;
+        layout.childAlignment = TextAnchor.UpperCenter;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+
+        ContentSizeFitter ajustador =
+            contenidoHistorial.GetComponent<ContentSizeFitter>();
+        if (ajustador == null)
+            ajustador = contenidoHistorial.gameObject.AddComponent<ContentSizeFitter>();
+        ajustador.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+        ajustador.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        if (contenidoHistorial is RectTransform rect)
+        {
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = Vector2.zero;
+        }
+
+        RefrescarHistorialVentas();
+    }
+
+    private void RegistrarVentaEnHistorial(
+        string producto,
+        int cantidad,
+        int ganancia)
+    {
+        if (contenidoHistorial == null)
+            ConfigurarHistorialVentas();
+
+        historialVentas.Add(new RegistroVenta
+        {
+            producto = producto,
+            cantidad = cantidad,
+            ganancia = ganancia,
+            totalAcumulado = monedas
+        });
+
+        RefrescarHistorialVentas();
+    }
+
+    private void CrearFilaHistorial(RegistroVenta venta, int indice)
+    {
+        if (contenidoHistorial == null || venta == null)
+            return;
+
+        numeroVenta = indice + 1;
+        GameObject fila = CrearObjetoUI(
+            $"Venta_{numeroVenta}_{venta.producto}",
+            contenidoHistorial
+        );
+        Image fondo = fila.AddComponent<Image>();
+        fondo.color = numeroVenta % 2 == 0
+            ? new Color(0.96f, 0.88f, 0.70f, 0.96f)
+            : new Color(0.90f, 0.79f, 0.57f, 0.96f);
+
+        LayoutElement elemento = fila.AddComponent<LayoutElement>();
+        elemento.minHeight = 54f;
+        elemento.preferredHeight = 54f;
+
+        GameObject iconoObjeto = CrearObjetoUI("IconoVenta", fila.transform);
+        RectTransform iconoRect = iconoObjeto.GetComponent<RectTransform>();
+        iconoRect.anchorMin = new Vector2(0f, 0.5f);
+        iconoRect.anchorMax = new Vector2(0f, 0.5f);
+        iconoRect.pivot = new Vector2(0f, 0.5f);
+        iconoRect.anchoredPosition = new Vector2(10f, 0f);
+        iconoRect.sizeDelta = new Vector2(42f, 42f);
+        Image icono = iconoObjeto.AddComponent<Image>();
+        icono.sprite = ObtenerIcono(venta.producto);
+        icono.preserveAspect = true;
+
+        TextMeshProUGUI texto = CrearTexto(
+            "DetalleVenta",
+            fila.transform,
+            $"{NombreVisible(venta.producto)} x{venta.cantidad}     " +
+            $"+${venta.ganancia}     Total: ${venta.totalAcumulado}",
+            19f,
+            TextAlignmentOptions.MidlineLeft
+        );
+        RectTransform textoRect = texto.rectTransform;
+        textoRect.anchorMin = Vector2.zero;
+        textoRect.anchorMax = Vector2.one;
+        textoRect.offsetMin = new Vector2(64f, 4f);
+        textoRect.offsetMax = new Vector2(-10f, -4f);
+        texto.color = new Color(0.30f, 0.16f, 0.06f, 1f);
+        texto.fontStyle = FontStyles.Bold;
+
+    }
+
+    private void RefrescarHistorialVentas()
+    {
+        if (textoTotalHistorial == null)
+        {
+            Transform total = BuscarTransformPorNombre("TextoTotal");
+            if (total != null)
+                textoTotalHistorial = total.GetComponent<TextMeshProUGUI>();
+        }
+
+        if (textoTotalHistorial != null)
+            textoTotalHistorial.text = $"Total vendido: ${monedas}";
+
+        if (contenidoHistorial != null &&
+            contenidoHistorial is RectTransform contenidoRect)
+        {
+            foreach (Transform filaAnterior in contenidoHistorial)
+            {
+                filaAnterior.gameObject.SetActive(false);
+                Destroy(filaAnterior.gameObject);
+            }
+
+            for (int i = 0; i < historialVentas.Count; i++)
+                CrearFilaHistorial(historialVentas[i], i);
+
+            Canvas.ForceUpdateCanvases();
+            LayoutRebuilder.ForceRebuildLayoutImmediate(contenidoRect);
+
+            ScrollRect scroll =
+                contenidoHistorial.GetComponentInParent<ScrollRect>();
+            if (scroll != null)
+                scroll.verticalNormalizedPosition = 0f;
+        }
     }
 
     private void CrearNubePedido()

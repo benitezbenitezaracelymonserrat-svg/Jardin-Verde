@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -11,6 +12,9 @@ public class PuertaCorralNivel2 : MonoBehaviour
 {
     private Animator animatorPuerta;
     private Collider[] collidersPuerta = new Collider[0];
+    private readonly List<Collider> collidersQueCierranElPaso =
+        new List<Collider>();
+    private Collider zonaEntrada;
     private bool abierta;
     private bool jugadorDentro;
     private bool cambiandoEstado;
@@ -21,6 +25,7 @@ public class PuertaCorralNivel2 : MonoBehaviour
     {
         animatorPuerta = animator;
         abierta = false;
+        zonaEntrada = GetComponent<Collider>();
 
         if (animatorPuerta == null)
             return;
@@ -66,7 +71,9 @@ public class PuertaCorralNivel2 : MonoBehaviour
 
             // Se libera físicamente la entrada desde que empieza a abrirse.
             // El collider vuelve solamente cuando la puerta se cierra.
+            DetectarCollidersQueCierranElPaso();
             ActivarCollidersPuerta(false);
+            ActivarCollidersDelPaso(false);
             yield return new WaitForSeconds(0.45f);
             abierta = true;
         }
@@ -75,6 +82,7 @@ public class PuertaCorralNivel2 : MonoBehaviour
             animatorPuerta.ResetTrigger("abrirpuerta");
             animatorPuerta.SetTrigger("Cerrarpuerta");
             yield return new WaitForSeconds(0.36f);
+            ActivarCollidersDelPaso(true);
             ActivarCollidersPuerta(true);
             abierta = false;
         }
@@ -86,6 +94,57 @@ public class PuertaCorralNivel2 : MonoBehaviour
     private void ActivarCollidersPuerta(bool activar)
     {
         foreach (Collider colision in collidersPuerta)
+        {
+            if (colision != null)
+                colision.enabled = activar;
+        }
+    }
+
+    private void DetectarCollidersQueCierranElPaso()
+    {
+        collidersQueCierranElPaso.Clear();
+
+        if (zonaEntrada == null)
+            return;
+
+        Physics.SyncTransforms();
+        Bounds entrada = zonaEntrada.bounds;
+        Collider[] encontrados = Physics.OverlapBox(
+            entrada.center,
+            entrada.extents + new Vector3(0.55f, 0.15f, 0.85f),
+            Quaternion.identity,
+            ~0,
+            QueryTriggerInteraction.Ignore
+        );
+
+        foreach (Collider colision in encontrados)
+        {
+            if (colision == null || !colision.enabled || colision.isTrigger ||
+                colision == zonaEntrada ||
+                colision is TerrainCollider ||
+                colision is CharacterController ||
+                colision.GetComponentInParent<PlayerController>() != null ||
+                colision.GetComponentInParent<Animal>() != null)
+            {
+                continue;
+            }
+
+            // El piso debe permanecer activo. Solo se liberan piezas altas
+            // del porton o la cerca que ocupen fisicamente la abertura.
+            if (colision.bounds.size.y < 0.65f ||
+                colision.bounds.max.y <= entrada.min.y + 0.35f)
+            {
+                continue;
+            }
+
+            if (System.Array.IndexOf(collidersPuerta, colision) < 0)
+                collidersQueCierranElPaso.Add(colision);
+        }
+    }
+
+    private void ActivarCollidersDelPaso(bool activar)
+    {
+        foreach (Collider colision in collidersQueCierranElPaso)
         {
             if (colision != null)
                 colision.enabled = activar;

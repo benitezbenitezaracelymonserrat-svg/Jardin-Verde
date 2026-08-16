@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -13,6 +14,13 @@ public class ManualJuegoUI : MonoBehaviour
     private GameObject panelManual;
     private float proximaOrganizacion;
     private bool esperandoFinCinematica;
+    private ManualImagenesConfig imagenesConfig;
+    private RawImage imagenPagina;
+    private TextMeshProUGUI textoNumeroPagina;
+    private Button botonAnterior;
+    private Button botonSiguiente;
+    private readonly List<Texture2D> paginasActuales = new List<Texture2D>();
+    private int paginaActual;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void CrearAutomaticamente()
@@ -119,10 +127,10 @@ public class ManualJuegoUI : MonoBehaviour
         panelRect.anchorMax = new Vector2(0.5f, 0.5f);
         panelRect.pivot = new Vector2(0.5f, 0.5f);
         panelRect.anchoredPosition = Vector2.zero;
-        panelRect.sizeDelta = new Vector2(850f, 610f);
+        panelRect.sizeDelta = new Vector2(1420f, 860f);
 
         Image panelFondo = panelManual.AddComponent<Image>();
-        panelFondo.sprite = CrearFondoRedondeado(850, 610, 20);
+        panelFondo.sprite = CrearFondoRedondeado(1420, 860, 24);
         panelFondo.color = new Color(0.96f, 0.86f, 0.66f, 0.99f);
         AgregarBorde(panelManual);
 
@@ -130,7 +138,7 @@ public class ManualJuegoUI : MonoBehaviour
             "TituloManual",
             panelManual.transform,
             "MANUAL DE LA GRANJA",
-            34f,
+            40f,
             TextAlignmentOptions.Center
         );
         RectTransform tituloRect = titulo.rectTransform;
@@ -142,34 +150,7 @@ public class ManualJuegoUI : MonoBehaviour
         titulo.color = new Color(0.30f, 0.16f, 0.06f, 1f);
         titulo.fontStyle = FontStyles.Bold;
 
-        CrearSeparador(panelManual.transform);
-        CrearPaginaNivel(
-            panelManual.transform,
-            "NIVEL 1",
-            "• Planta y riega las 6 zonas de cultivos.\n" +
-            "• Llena los comederos para alimentar a todos los animales.\n" +
-            "• Acércate y presiona E o usa los botones inferiores.",
-            new Vector2(28f, -92f)
-        );
-        CrearPaginaNivel(
-            panelManual.transform,
-            "NIVEL 2",
-            "• Cosecha todos los cultivos de cada zona.\n" +
-            "• Recoge las cajas una por una con RECOGER o E.\n" +
-            "• Abre las puertas con E, ordeña vacas y cabras.\n" +
-            "• Recoge los baldes de leche y los huevos.",
-            new Vector2(430f, -92f)
-        );
-        CrearPaginaNivel(
-            panelManual.transform,
-            "NIVEL 3",
-            "• Mira el pedido que aparece sobre el cliente.\n" +
-            "• Abre el inventario y pulsa VENDER en cada producto pedido.\n" +
-            "• Atiende al menos a 5 clientes para completar el juego.\n" +
-            "• Precios: verduras $5; calabaza/lechuga $8; huevo $3; leche $6.",
-            new Vector2(28f, -330f),
-            new Vector2(794f, 190f)
-        );
+        CrearVisorImagenes(panelManual.transform);
 
         GameObject cerrarObjeto = CrearObjetoUI("CerrarManual", panelManual.transform);
         RectTransform cerrarRect = cerrarObjeto.GetComponent<RectTransform>();
@@ -207,6 +188,7 @@ public class ManualJuegoUI : MonoBehaviour
         if (panelManual == null || CinematicaIntro.cinematicaActiva)
             return;
 
+        PrepararPaginasNivelActual();
         panelManual.SetActive(true);
         panelManual.transform.SetAsLastSibling();
         OcultarInterfazSuperior();
@@ -219,6 +201,159 @@ public class ManualJuegoUI : MonoBehaviour
 
         RestaurarInterfazSuperior();
         OrganizarBarraSuperior();
+
+        if (GestorNivel3.NivelActivo)
+            GestorNivel3.AbrirInventarioParaVentasGlobal();
+    }
+
+    private void CrearVisorImagenes(Transform padre)
+    {
+        imagenesConfig = Resources.Load<ManualImagenesConfig>(
+            "UI/ManualImagenesConfig"
+        );
+
+        GameObject visor = CrearObjetoUI("VisorManual", padre);
+        RectTransform visorRect = visor.GetComponent<RectTransform>();
+        visorRect.anchorMin = Vector2.zero;
+        visorRect.anchorMax = Vector2.one;
+        visorRect.offsetMin = new Vector2(24f, 62f);
+        visorRect.offsetMax = new Vector2(-24f, -88f);
+
+        imagenPagina = visor.AddComponent<RawImage>();
+        imagenPagina.color = Color.white;
+        imagenPagina.raycastTarget = false;
+        AspectRatioFitter proporcion = visor.AddComponent<AspectRatioFitter>();
+        proporcion.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+        proporcion.aspectRatio = 16f / 9f;
+
+        botonAnterior = CrearBotonPagina(
+            padre,
+            "PaginaAnterior",
+            "<",
+            new Vector2(-90f, 18f),
+            () => CambiarPagina(-1)
+        );
+        botonSiguiente = CrearBotonPagina(
+            padre,
+            "PaginaSiguiente",
+            ">",
+            new Vector2(90f, 18f),
+            () => CambiarPagina(1)
+        );
+
+        textoNumeroPagina = CrearTexto(
+            "NumeroPaginaManual",
+            padre,
+            "1/1",
+            20f,
+            TextAlignmentOptions.Center
+        );
+        RectTransform numeroRect = textoNumeroPagina.rectTransform;
+        numeroRect.anchorMin = new Vector2(0.5f, 0f);
+        numeroRect.anchorMax = new Vector2(0.5f, 0f);
+        numeroRect.pivot = new Vector2(0.5f, 0f);
+        numeroRect.anchoredPosition = new Vector2(0f, 18f);
+        numeroRect.sizeDelta = new Vector2(100f, 34f);
+        textoNumeroPagina.color = new Color(0.30f, 0.16f, 0.06f, 1f);
+    }
+
+    private Button CrearBotonPagina(
+        Transform padre,
+        string nombre,
+        string simbolo,
+        Vector2 posicion,
+        UnityEngine.Events.UnityAction accion)
+    {
+        GameObject objeto = CrearObjetoUI(nombre, padre);
+        RectTransform rect = objeto.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0f);
+        rect.anchorMax = new Vector2(0.5f, 0f);
+        rect.pivot = new Vector2(0.5f, 0f);
+        rect.anchoredPosition = posicion;
+        rect.sizeDelta = new Vector2(58f, 38f);
+
+        Image fondo = objeto.AddComponent<Image>();
+        fondo.sprite = CrearFondoRedondeado(58, 38, 9);
+        fondo.color = new Color(0.42f, 0.25f, 0.10f, 1f);
+        Button boton = objeto.AddComponent<Button>();
+        boton.targetGraphic = fondo;
+        boton.onClick.AddListener(accion);
+
+        TextMeshProUGUI texto = CrearTexto(
+            "Simbolo" + nombre,
+            objeto.transform,
+            simbolo,
+            24f,
+            TextAlignmentOptions.Center
+        );
+        Estirar(texto.rectTransform, 1f);
+        return boton;
+    }
+
+    private void PrepararPaginasNivelActual()
+    {
+        paginasActuales.Clear();
+        paginaActual = 0;
+
+        if (imagenesConfig != null)
+        {
+            if (GestorNivel3.NivelActivo)
+            {
+                AgregarPagina(imagenesConfig.nivel3Ventas);
+            }
+            else if (GestorNivel2.NivelActivo)
+            {
+                AgregarPagina(imagenesConfig.nivel2Produccion);
+                AgregarPagina(imagenesConfig.nivel2Cosecha);
+            }
+            else
+            {
+                AgregarPagina(imagenesConfig.nivel1Cultivos);
+                AgregarPagina(imagenesConfig.nivel1Animales);
+            }
+        }
+
+        ActualizarPaginaManual();
+    }
+
+    private void AgregarPagina(Texture2D textura)
+    {
+        if (textura != null)
+            paginasActuales.Add(textura);
+    }
+
+    private void CambiarPagina(int cambio)
+    {
+        if (paginasActuales.Count == 0)
+            return;
+
+        paginaActual = Mathf.Clamp(
+            paginaActual + cambio,
+            0,
+            paginasActuales.Count - 1
+        );
+        ActualizarPaginaManual();
+    }
+
+    private void ActualizarPaginaManual()
+    {
+        bool hayPaginas = paginasActuales.Count > 0;
+
+        if (imagenPagina != null)
+            imagenPagina.texture = hayPaginas
+                ? paginasActuales[paginaActual]
+                : Texture2D.whiteTexture;
+
+        if (textoNumeroPagina != null)
+            textoNumeroPagina.text = hayPaginas
+                ? $"{paginaActual + 1}/{paginasActuales.Count}"
+                : "SIN IMAGEN";
+
+        if (botonAnterior != null)
+            botonAnterior.interactable = hayPaginas && paginaActual > 0;
+        if (botonSiguiente != null)
+            botonSiguiente.interactable =
+                hayPaginas && paginaActual < paginasActuales.Count - 1;
     }
 
     private static readonly string[] NombresInterfazSuperior =
@@ -229,7 +364,8 @@ public class ManualJuegoUI : MonoBehaviour
         "BotonDesafiosNivel3",
         "BotonInventarioNivel1",
         "Btn_Inventario",
-        "IndicadorMonedasNivel3"
+        "IndicadorMonedasNivel3",
+        "BarraProgresoNivel"
     };
 
     private static void OcultarInterfazSuperior()
@@ -297,13 +433,19 @@ public class ManualJuegoUI : MonoBehaviour
 
     private void OrganizarBarraSuperior()
     {
-        RectTransform tareas = BuscarRectActivo(
+        RectTransform[] rects = FindObjectsByType<RectTransform>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None
+        );
+
+        RectTransform tareas = BuscarRectActivo(rects,
             "BotonDesafiosNivel3", "BotonDesafiosNivel2", "BotonDesafios"
         );
-        RectTransform inventario = BuscarRectActivo(
+        RectTransform inventario = BuscarRectActivo(rects,
             "BotonInventarioNivel1", "Btn_Inventario"
         );
-        RectTransform monedas = BuscarRectActivo("IndicadorMonedasNivel3");
+        RectTransform monedas = BuscarRectActivo(
+            rects, "IndicadorMonedasNivel3");
 
         if (botonLibro != null)
             ColocarIzquierda(botonLibro.GetComponent<RectTransform>(), 22f, 64f);
@@ -343,13 +485,10 @@ public class ManualJuegoUI : MonoBehaviour
         rect.localScale = Vector3.one;
     }
 
-    private static RectTransform BuscarRectActivo(params string[] nombres)
+    private static RectTransform BuscarRectActivo(
+        RectTransform[] rects,
+        params string[] nombres)
     {
-        RectTransform[] rects = FindObjectsByType<RectTransform>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None
-        );
-
         foreach (string nombre in nombres)
         {
             foreach (RectTransform rect in rects)

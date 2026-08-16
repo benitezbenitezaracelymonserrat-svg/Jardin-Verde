@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c7a6de7730b94cf69e3628d0c0da9f6a, type: 3}
+  m_Name: ManualImagenesConfig
+  m_EditorClassIdentifier: Assembly-CSharp::ManualImagenesConfig
+  nivel1Cultivos: {fileID: 2800000, guid: 022d3ee01d24e1a4c9e16f991bb6fdf6, type: 3}
+  nivel1Animales: {fileID: 2800000, guid: 0694a38057dcf8a4d84259c0bc70b3c6, type: 3}
+  nivel2Produccion: {fileID: 2800000, guid: 8554293815590c0469d8d3045071d054, type: 3}
+  nivel2Cosecha: {fileID: 2800000, guid: fd22b2c1cc2e8454ca8818571e5efc54, type: 3}
+  nivel3Ventas: {fileID: 2800000, guid: 5ed2ed9d2032cc74f95168a0cd97957f, type: 3}

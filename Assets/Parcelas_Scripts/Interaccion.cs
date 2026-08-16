@@ -33,6 +33,15 @@ public class Interaccion : MonoBehaviour
     private NidoGallina nidoCercano;
     private BaldeLecheRecolectable baldeCercano;
     private Animal animalOrdenableCercano;
+    private readonly Collider[] bufferDeteccion = new Collider[256];
+    private readonly HashSet<SlotParcela> slotsRevisados =
+        new HashSet<SlotParcela>();
+    private readonly Dictionary<SlotParcela, float> candidatosSlot =
+        new Dictionary<SlotParcela, float>();
+    private readonly Dictionary<CajaCosechaRecolectable, float> candidatasCaja =
+        new Dictionary<CajaCosechaRecolectable, float>();
+    private float proximaDeteccion;
+    private const float IntervaloDeteccion = 0.08f;
 
     void Start()
     {
@@ -44,7 +53,12 @@ public class Interaccion : MonoBehaviour
 
     void Update()
     {
-        DetectarCercanos();
+        bool quiereInteractuar = Input.GetKeyDown(KeyCode.E);
+        if (Time.unscaledTime >= proximaDeteccion || quiereInteractuar)
+        {
+            DetectarCercanos();
+            proximaDeteccion = Time.unscaledTime + IntervaloDeteccion;
+        }
 
         if (Input.GetKeyDown(KeyCode.Alpha1))
             SeleccionarSemilla();
@@ -55,7 +69,7 @@ public class Interaccion : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.Alpha3) && GestorNivel2.NivelActivo)
             SeleccionarCanasta();
 
-        if (Input.GetKeyDown(KeyCode.E))
+        if (quiereInteractuar)
             Interactuar();
     }
 
@@ -130,26 +144,33 @@ public class Interaccion : MonoBehaviour
     {
         SlotParcela slotEncontrado = null;
         float distanciaSlotMasCercano = float.PositiveInfinity;
-        SlotParcela slotAccionable = null;
-        float distanciaSlotAccionable = float.PositiveInfinity;
-        HashSet<SlotParcela> slotsRevisados = new HashSet<SlotParcela>();
+        slotsRevisados.Clear();
+        candidatosSlot.Clear();
         Comedero comederoEncontrado = null;
         ProductoRecolectable productoEncontrado = null;
         CajaCosechaRecolectable cajaEncontrada = null;
         float distanciaCajaMasCercana = float.PositiveInfinity;
+        candidatasCaja.Clear();
         NidoGallina nidoEncontrado = null;
         BaldeLecheRecolectable baldeEncontrado = null;
         Animal animalOrdenableEncontrado = null;
 
-        Collider[] cercanos = Physics.OverlapSphere(
+        int cantidadCercanos = Physics.OverlapSphereNonAlloc(
             transform.position,
             radioDeteccion,
+            bufferDeteccion,
             ~0,
             QueryTriggerInteraction.Collide
         );
 
-        foreach (Collider col in cercanos)
+        for (int indiceCollider = 0;
+             indiceCollider < cantidadCercanos;
+             indiceCollider++)
         {
+            Collider col = bufferDeteccion[indiceCollider];
+            if (col == null)
+                continue;
+
             {
                 CajaCosechaRecolectable posibleCaja =
                     col.GetComponentInParent<CajaCosechaRecolectable>();
@@ -160,6 +181,7 @@ public class Interaccion : MonoBehaviour
                         posibleCaja.transform.position - transform.position;
                     diferenciaCaja.y = 0f;
                     float distanciaCaja = diferenciaCaja.sqrMagnitude;
+                    candidatasCaja[posibleCaja] = distanciaCaja;
 
                     if (distanciaCaja < distanciaCajaMasCercana)
                     {
@@ -215,33 +237,86 @@ public class Interaccion : MonoBehaviour
                 diferencia.y = 0f;
                 float distancia = diferencia.sqrMagnitude;
 
+                // Un collider grande de otra huerta puede tocar la esfera,
+                // pero su slot no participa si su centro está fuera del radio.
+                if (distancia > radioDeteccion * radioDeteccion)
+                    continue;
+
+                candidatosSlot[posibleSlot] = distancia;
+
                 if (distancia < distanciaSlotMasCercano)
                 {
                     distanciaSlotMasCercano = distancia;
                     slotEncontrado = posibleSlot;
                 }
 
-                // Para cosechar no obliga a encontrar el centro exacto de
-                // cada planta: dentro del radio elige la planta madura mas
-                // cercana. Lo mismo mejora plantar y regar.
-                if (posibleSlot.PuedeInteractuar(herramientaActual) &&
-                    distancia < distanciaSlotAccionable)
-                {
-                    distanciaSlotAccionable = distancia;
-                    slotAccionable = posibleSlot;
-                }
             }
 
             if (comederoEncontrado == null)
                 comederoEncontrado = col.GetComponentInParent<Comedero>();
         }
 
-        slotCercano = slotAccionable != null
-            ? slotAccionable
+        // Se usa únicamente el slot físicamente más cercano. Si ese slot ya
+        // no acepta la herramienta, la acción falla allí y jamás salta a una
+        // parcela vecina de tomate/zanahoria/etc.
+        // Primero se decide la HUERTA por el slot fisicamente mas cercano.
+        // Luego se busca el producto accionable mas cercano SOLO dentro de
+        // los arrays de esa misma parcelaComponente. Tomate nunca puede
+        // saltar a zanahoria, papa, cebolla, etc.
+        SlotParcela slotAccionableMismaHuerta = null;
+        float distanciaAccionable = float.PositiveInfinity;
+
+        if (slotEncontrado != null)
+        {
+            MonoBehaviour huertaElegida = slotEncontrado.ParcelaComponente;
+
+            foreach (KeyValuePair<SlotParcela, float> candidato in candidatosSlot)
+            {
+                SlotParcela slot = candidato.Key;
+                if (slot == null ||
+                    slot.ParcelaComponente != huertaElegida ||
+                    !slot.PuedeInteractuar(herramientaActual) ||
+                    candidato.Value >= distanciaAccionable)
+                {
+                    continue;
+                }
+
+                distanciaAccionable = candidato.Value;
+                slotAccionableMismaHuerta = slot;
+            }
+        }
+
+        slotCercano = slotAccionableMismaHuerta != null
+            ? slotAccionableMismaHuerta
             : slotEncontrado;
         zonaCosechaCercana = slotCercano != null
             ? slotCercano.ZonaCosecha
             : null;
+
+        // Al recoger dentro de una huerta, la caja tambien debe pertenecer a
+        // esa misma zona. Fuera de cultivos se conserva la caja mas cercana.
+        if (zonaCosechaCercana != null)
+        {
+            CajaCosechaRecolectable cajaDeLaMismaZona = null;
+            float distanciaCajaZona = float.PositiveInfinity;
+
+            foreach (KeyValuePair<CajaCosechaRecolectable, float> candidata
+                in candidatasCaja)
+            {
+                if (candidata.Key == null ||
+                    candidata.Key.ZonaCosecha != zonaCosechaCercana ||
+                    candidata.Value >= distanciaCajaZona)
+                {
+                    continue;
+                }
+
+                cajaDeLaMismaZona = candidata.Key;
+                distanciaCajaZona = candidata.Value;
+            }
+
+            cajaEncontrada = cajaDeLaMismaZona;
+        }
+
         comederoCercano = comederoEncontrado;
         productoCercano = productoEncontrado;
         cajaCercana = cajaEncontrada;

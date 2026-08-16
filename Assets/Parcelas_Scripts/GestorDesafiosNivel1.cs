@@ -12,6 +12,8 @@ using UnityEngine.UI;
 public class GestorDesafiosNivel1 : MonoBehaviour
 {
     public static GestorDesafiosNivel1 Instancia { get; private set; }
+    public static float Progreso01 =>
+        Instancia != null ? Instancia.CalcularProgreso01() : 0f;
 
     private const int ObjetivoParcelas = 6;
 
@@ -646,6 +648,33 @@ public class GestorDesafiosNivel1 : MonoBehaviour
             panelDesafios.SetActive(true);
             panelDesafios.transform.SetAsLastSibling();
         }
+    }
+
+    private float CalcularProgreso01()
+    {
+        int totalAnimales = animales != null ? animales.Length : 0;
+        int alimentados = 0;
+
+        if (animales != null)
+        {
+            foreach (Animal animal in animales)
+            {
+                if (animal != null && animal.FueAlimentado)
+                    alimentados++;
+            }
+        }
+
+        float plantado = Mathf.Clamp01(
+            zonasPlantadas.Count / (float)ObjetivoParcelas
+        );
+        float regado = Mathf.Clamp01(
+            zonasRegadas.Count / (float)ObjetivoParcelas
+        );
+        float animalesListos = totalAnimales > 0
+            ? Mathf.Clamp01(alimentados / (float)totalAnimales)
+            : 0f;
+
+        return (plantado + regado + animalesListos) / 3f;
     }
 
     private static string Marca(int actual, int objetivo)

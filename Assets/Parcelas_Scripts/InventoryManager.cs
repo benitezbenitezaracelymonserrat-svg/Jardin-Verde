@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
@@ -12,6 +13,7 @@ public class InventoryManager : MonoBehaviour
     private Dictionary<string, int> productos = new Dictionary<string, int>();
     private Dictionary<string, Sprite> iconos = new Dictionary<string, Sprite>();
     private ScrollRect scrollProductos;
+    private Coroutine ajusteVisualPendiente;
 
     private static readonly string[] OrdenProductos =
     {
@@ -22,6 +24,7 @@ public class InventoryManager : MonoBehaviour
     void Awake()
     {
         ConfigurarContenido();
+        ProgramarAjusteVisual();
     }
 
 
@@ -67,15 +70,38 @@ public class InventoryManager : MonoBehaviour
 
         ConfigurarContenido();
 
-        // borrar lista actual
-        foreach (Transform hijo in content)
-        {
-            Destroy(hijo.gameObject);
-        }
-
-
         List<KeyValuePair<string, int>> lista =
             new List<KeyValuePair<string, int>>(productos);
+
+        // Se reutilizan las filas existentes. Destruir y recrear todos los
+        // botones en cada venta terminaba dañando la lista interna Selectable
+        // de UGUI durante una recarga de scripts.
+        Dictionary<string, GameObject> filasExistentes =
+            new Dictionary<string, GameObject>(
+                System.StringComparer.OrdinalIgnoreCase
+            );
+
+        foreach (Transform hijo in content)
+        {
+            TextMeshProUGUI[] textosFila =
+                hijo.GetComponentsInChildren<TextMeshProUGUI>(true);
+            string nombreProducto = null;
+
+            foreach (TextMeshProUGUI textoFila in textosFila)
+            {
+                if (textoFila.name == "Nombre")
+                {
+                    nombreProducto = textoFila.text;
+                    break;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(nombreProducto) &&
+                !filasExistentes.ContainsKey(nombreProducto))
+            {
+                filasExistentes[nombreProducto] = hijo.gameObject;
+            }
+        }
 
         lista.Sort((a, b) =>
         {
@@ -103,9 +129,20 @@ public class InventoryManager : MonoBehaviour
                 : string.Compare(a.Key, b.Key, System.StringComparison.OrdinalIgnoreCase);
         });
 
-        foreach (var producto in lista)
+        for (int indiceProducto = 0; indiceProducto < lista.Count; indiceProducto++)
         {
-            GameObject item = Instantiate(itemPrefab, content);
+            KeyValuePair<string, int> producto = lista[indiceProducto];
+            GameObject item;
+
+            if (!filasExistentes.TryGetValue(producto.Key, out item) || item == null)
+            {
+                item = Instantiate(itemPrefab, content);
+                item.name = "ItemProducto_" + producto.Key;
+            }
+
+            if (!item.activeSelf)
+                item.SetActive(true);
+            item.transform.SetSiblingIndex(indiceProducto);
             ConfigurarItem(item);
 
 
@@ -155,6 +192,49 @@ public class InventoryManager : MonoBehaviour
             LayoutRebuilder.ForceRebuildLayoutImmediate(rectContenido);
             Canvas.ForceUpdateCanvases();
         }
+
+        MantenerCierreVisible();
+
+        if (scrollProductos != null)
+        {
+            Canvas.ForceUpdateCanvases();
+            scrollProductos.StopMovement();
+            scrollProductos.verticalNormalizedPosition = 1f;
+        }
+
+        ProgramarAjusteVisual();
+    }
+
+    private void ProgramarAjusteVisual()
+    {
+        if (!isActiveAndEnabled)
+            return;
+
+        if (ajusteVisualPendiente != null)
+            StopCoroutine(ajusteVisualPendiente);
+
+        ajusteVisualPendiente = StartCoroutine(AjustarVisualSiguienteFrame());
+    }
+
+    private IEnumerator AjustarVisualSiguienteFrame()
+    {
+        yield return null;
+
+        RectTransform panelInventario = BuscarPanelInventario();
+        if (panelInventario != null)
+        {
+            ConfigurarTamanoInventario(panelInventario);
+            MantenerCierreVisible();
+            Canvas.ForceUpdateCanvases();
+        }
+
+        if (scrollProductos != null)
+        {
+            scrollProductos.StopMovement();
+            scrollProductos.verticalNormalizedPosition = 1f;
+        }
+
+        ajusteVisualPendiente = null;
     }
 
     private static void ConfigurarBotonVenta(GameObject item, string producto)
@@ -201,16 +281,23 @@ public class InventoryManager : MonoBehaviour
         if (content == null)
             return;
 
+        RectTransform panelInventario = BuscarPanelInventario();
+        if (panelInventario != null)
+            ConfigurarTamanoInventario(panelInventario);
+
         scrollProductos = content.GetComponentInParent<ScrollRect>();
 
         if (scrollProductos != null)
         {
+            AsegurarBarraVertical();
             scrollProductos.content = content as RectTransform;
             scrollProductos.horizontal = false;
             scrollProductos.vertical = true;
             scrollProductos.movementType = ScrollRect.MovementType.Clamped;
             scrollProductos.inertia = true;
             scrollProductos.scrollSensitivity = 28f;
+            scrollProductos.verticalScrollbarVisibility =
+                ScrollRect.ScrollbarVisibility.Permanent;
 
             RectTransform scrollRect =
                 scrollProductos.GetComponent<RectTransform>();
@@ -230,7 +317,7 @@ public class InventoryManager : MonoBehaviour
                 panelProductos.anchorMax = Vector2.one;
                 panelProductos.pivot = new Vector2(0.5f, 0.5f);
                 panelProductos.offsetMin = new Vector2(20f, 20f);
-                panelProductos.offsetMax = new Vector2(-20f, -115f);
+                panelProductos.offsetMax = new Vector2(-20f, -180f);
                 panelProductos.localScale = Vector3.one;
             }
 
@@ -238,7 +325,7 @@ public class InventoryManager : MonoBehaviour
             scrollRect.anchorMax = Vector2.one;
             scrollRect.pivot = new Vector2(0.5f, 0.5f);
             scrollRect.offsetMin = new Vector2(8f, 8f);
-            scrollRect.offsetMax = new Vector2(-8f, -42f);
+            scrollRect.offsetMax = new Vector2(-8f, -8f);
             scrollRect.localScale = Vector3.one;
 
             RectTransform viewport = scrollProductos.viewport;
@@ -302,6 +389,381 @@ public class InventoryManager : MonoBehaviour
             rect.sizeDelta = new Vector2(0f, rect.sizeDelta.y);
             rect.localScale = Vector3.one;
         }
+
+        MantenerCierreVisible();
+    }
+
+    private void AsegurarBarraVertical()
+    {
+        if (scrollProductos == null)
+            return;
+
+        if (scrollProductos.verticalScrollbar == null)
+        {
+            Scrollbar[] barras =
+                scrollProductos.GetComponentsInChildren<Scrollbar>(true);
+
+            foreach (Scrollbar barraExistente in barras)
+            {
+                if (barraExistente != null &&
+                    barraExistente.name.ToLowerInvariant().Contains("vertical"))
+                {
+                    scrollProductos.verticalScrollbar = barraExistente;
+                    break;
+                }
+            }
+        }
+
+        if (scrollProductos.verticalScrollbar != null)
+            return;
+
+        GameObject barraObjeto = new GameObject(
+            "Scrollbar Vertical Productos",
+            typeof(RectTransform),
+            typeof(CanvasRenderer),
+            typeof(Image),
+            typeof(Scrollbar)
+        );
+        barraObjeto.layer = scrollProductos.gameObject.layer;
+        barraObjeto.transform.SetParent(scrollProductos.transform, false);
+
+        RectTransform barraRect = barraObjeto.GetComponent<RectTransform>();
+        barraRect.anchorMin = new Vector2(1f, 0f);
+        barraRect.anchorMax = Vector2.one;
+        barraRect.pivot = new Vector2(1f, 0.5f);
+        barraRect.anchoredPosition = Vector2.zero;
+        barraRect.sizeDelta = new Vector2(18f, 0f);
+
+        Image fondo = barraObjeto.GetComponent<Image>();
+        fondo.color = new Color(0.30f, 0.16f, 0.06f, 0.45f);
+
+        GameObject areaObjeto = new GameObject(
+            "Sliding Area",
+            typeof(RectTransform)
+        );
+        areaObjeto.layer = barraObjeto.layer;
+        areaObjeto.transform.SetParent(barraObjeto.transform, false);
+        RectTransform area = areaObjeto.GetComponent<RectTransform>();
+        area.anchorMin = Vector2.zero;
+        area.anchorMax = Vector2.one;
+        area.offsetMin = new Vector2(2f, 2f);
+        area.offsetMax = new Vector2(-2f, -2f);
+
+        GameObject controlObjeto = new GameObject(
+            "Handle",
+            typeof(RectTransform),
+            typeof(CanvasRenderer),
+            typeof(Image)
+        );
+        controlObjeto.layer = barraObjeto.layer;
+        controlObjeto.transform.SetParent(area, false);
+        RectTransform control = controlObjeto.GetComponent<RectTransform>();
+        control.anchorMin = Vector2.zero;
+        control.anchorMax = Vector2.one;
+        control.offsetMin = Vector2.zero;
+        control.offsetMax = Vector2.zero;
+
+        Image imagenControl = controlObjeto.GetComponent<Image>();
+        imagenControl.color = new Color(0.73f, 0.43f, 0.16f, 1f);
+
+        Scrollbar barra = barraObjeto.GetComponent<Scrollbar>();
+        barra.targetGraphic = imagenControl;
+        barra.handleRect = control;
+        barra.direction = Scrollbar.Direction.BottomToTop;
+        scrollProductos.verticalScrollbar = barra;
+    }
+
+    private void MantenerCierreVisible()
+    {
+        if (content == null)
+            return;
+
+        Transform panel = content;
+        while (panel != null && panel.name != "PanelInventario")
+            panel = panel.parent;
+
+        if (panel == null)
+            return;
+
+        RectTransform cierre = null;
+        RectTransform[] elementos =
+            panel.GetComponentsInChildren<RectTransform>(true);
+
+        foreach (RectTransform elemento in elementos)
+        {
+            if (elemento != null && elemento.name == "BtnCerrar")
+            {
+                cierre = elemento;
+                break;
+            }
+        }
+
+        if (cierre == null)
+            return;
+
+        if (cierre.GetComponentInParent<ScrollRect>() != null)
+            cierre.SetParent(panel, false);
+
+        cierre.anchorMin = Vector2.one;
+        cierre.anchorMax = Vector2.one;
+        cierre.pivot = Vector2.one;
+        cierre.anchoredPosition = new Vector2(-16f, -14f);
+        cierre.sizeDelta = new Vector2(46f, 42f);
+        cierre.localScale = Vector3.one;
+
+        Transform barraSuperior = cierre.parent;
+        if (barraSuperior != null && barraSuperior.name == "BarraSuperior")
+        {
+            RectTransform barraRect = barraSuperior as RectTransform;
+            if (barraRect != null)
+            {
+                LayoutElement layout =
+                    barraRect.GetComponent<LayoutElement>();
+                if (layout == null)
+                    layout = barraRect.gameObject.AddComponent<LayoutElement>();
+                layout.ignoreLayout = true;
+
+                barraRect.anchorMin = new Vector2(0f, 1f);
+                barraRect.anchorMax = Vector2.one;
+                barraRect.pivot = new Vector2(0.5f, 1f);
+                barraRect.anchoredPosition = new Vector2(0f, -20f);
+                barraRect.sizeDelta = new Vector2(-40f, 80f);
+                barraRect.localScale = Vector3.one;
+            }
+
+            barraSuperior.SetAsLastSibling();
+        }
+
+        cierre.SetAsLastSibling();
+    }
+
+    private RectTransform BuscarPanelInventario()
+    {
+        Transform panel = content;
+        while (panel != null && panel.name != "PanelInventario")
+            panel = panel.parent;
+
+        return panel as RectTransform;
+    }
+
+    private static void ConfigurarTamanoInventario(RectTransform panel)
+    {
+        // Distribucion fija: titulo, pestanas y contenido, sin superposiciones.
+        panel.sizeDelta = new Vector2(1200f, 820f);
+        panel.localScale = Vector3.one;
+
+        VerticalLayoutGroup layoutRaiz = panel.GetComponent<VerticalLayoutGroup>();
+        if (layoutRaiz != null)
+            layoutRaiz.enabled = false;
+
+        RectTransform fondo = ConfigurarZonaAbsoluta(
+            panel, "Fondo", Vector2.zero, Vector2.zero);
+        RectTransform barraCategorias = ConfigurarFranjaSuperior(
+            panel, "BarraCategorias", 110f, 58f);
+
+        ConfigurarZonaAbsoluta(
+            panel,
+            "PanelProductos",
+            new Vector2(20f, 20f),
+            new Vector2(-20f, -180f)
+        );
+        ConfigurarZonaAbsoluta(
+            panel,
+            "PanelVentas",
+            new Vector2(20f, 20f),
+            new Vector2(-20f, -180f)
+        );
+
+        if (fondo != null && fondo.GetSiblingIndex() != 0)
+            fondo.SetAsFirstSibling();
+
+        ConfigurarBotonesCategorias(barraCategorias);
+        ConfigurarPanelProductos(panel.Find("PanelProductos") as RectTransform);
+        ConfigurarPanelVentas(panel.Find("PanelVentas") as RectTransform);
+
+        if (barraCategorias != null)
+        {
+            Transform barraSuperior = panel.Find("BarraSuperior");
+            if (barraSuperior != null)
+            {
+                barraSuperior.SetAsLastSibling();
+                int indicePestanas = Mathf.Max(1, panel.childCount - 2);
+                if (barraCategorias.GetSiblingIndex() != indicePestanas)
+                    barraCategorias.SetSiblingIndex(indicePestanas);
+            }
+            else if (barraCategorias.GetSiblingIndex() != panel.childCount - 1)
+            {
+                barraCategorias.SetAsLastSibling();
+            }
+        }
+    }
+
+    private static RectTransform ConfigurarZonaAbsoluta(
+        RectTransform panel,
+        string nombre,
+        Vector2 margenInferior,
+        Vector2 margenSuperior)
+    {
+        Transform hijo = panel.Find(nombre);
+        RectTransform rect = hijo as RectTransform;
+        if (rect == null)
+            return null;
+
+        LayoutElement elemento = rect.GetComponent<LayoutElement>();
+        if (elemento == null)
+            elemento = rect.gameObject.AddComponent<LayoutElement>();
+        elemento.ignoreLayout = true;
+
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.offsetMin = margenInferior;
+        rect.offsetMax = margenSuperior;
+        rect.localScale = Vector3.one;
+        return rect;
+    }
+
+    private static RectTransform ConfigurarFranjaSuperior(
+        RectTransform panel,
+        string nombre,
+        float distanciaDesdeArriba,
+        float altura)
+    {
+        RectTransform rect = panel.Find(nombre) as RectTransform;
+        if (rect == null)
+            return null;
+
+        LayoutElement elemento = rect.GetComponent<LayoutElement>();
+        if (elemento == null)
+            elemento = rect.gameObject.AddComponent<LayoutElement>();
+        elemento.ignoreLayout = true;
+
+        rect.anchorMin = new Vector2(0f, 1f);
+        rect.anchorMax = Vector2.one;
+        rect.pivot = new Vector2(0.5f, 1f);
+        rect.anchoredPosition = new Vector2(0f, -distanciaDesdeArriba);
+        rect.sizeDelta = new Vector2(-40f, altura);
+        rect.localScale = Vector3.one;
+        return rect;
+    }
+
+    private static void ConfigurarBotonesCategorias(RectTransform barra)
+    {
+        if (barra == null)
+            return;
+
+        HorizontalLayoutGroup layout = barra.GetComponent<HorizontalLayoutGroup>();
+        if (layout != null)
+            layout.enabled = false;
+
+        ContentSizeFitter fitter = barra.GetComponent<ContentSizeFitter>();
+        if (fitter != null)
+            fitter.enabled = false;
+
+        ConfigurarHijoEstirado(
+            barra, "Fondocategorias", Vector2.zero, Vector2.one);
+        ConfigurarHijoEstirado(
+            barra, "BtnProductos", Vector2.zero, new Vector2(0.5f, 1f));
+        ConfigurarHijoEstirado(
+            barra, "BtnVentas", new Vector2(0.5f, 0f), Vector2.one);
+
+        Transform fondo = barra.Find("Fondocategorias");
+        Transform productos = barra.Find("BtnProductos");
+        Transform ventas = barra.Find("BtnVentas");
+        if (fondo != null && fondo.GetSiblingIndex() != 0)
+            fondo.SetAsFirstSibling();
+        if (productos != null)
+        {
+            int indiceProductos = Mathf.Max(1, barra.childCount - 2);
+            if (productos.GetSiblingIndex() != indiceProductos)
+                productos.SetSiblingIndex(indiceProductos);
+        }
+        if (ventas != null && ventas.GetSiblingIndex() != barra.childCount - 1)
+            ventas.SetAsLastSibling();
+    }
+
+    private static void ConfigurarHijoEstirado(
+        RectTransform padre,
+        string nombre,
+        Vector2 anclaMinima,
+        Vector2 anclaMaxima)
+    {
+        RectTransform rect = padre.Find(nombre) as RectTransform;
+        if (rect == null)
+            return;
+
+        LayoutElement layout = rect.GetComponent<LayoutElement>();
+        if (layout != null)
+            layout.ignoreLayout = true;
+
+        rect.anchorMin = anclaMinima;
+        rect.anchorMax = anclaMaxima;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.offsetMin = new Vector2(2f, 0f);
+        rect.offsetMax = new Vector2(-2f, 0f);
+        rect.localScale = Vector3.one;
+    }
+
+    private static void ConfigurarPanelVentas(RectTransform panelVentas)
+    {
+        if (panelVentas == null)
+            return;
+
+        VerticalLayoutGroup layout = panelVentas.GetComponent<VerticalLayoutGroup>();
+        if (layout != null)
+            layout.enabled = false;
+
+        ContentSizeFitter fitter = panelVentas.GetComponent<ContentSizeFitter>();
+        if (fitter != null)
+            fitter.enabled = false;
+
+        RectTransform titulo = panelVentas.Find("TituloVentas") as RectTransform;
+        if (titulo != null)
+        {
+            titulo.anchorMin = new Vector2(0f, 1f);
+            titulo.anchorMax = Vector2.one;
+            titulo.pivot = new Vector2(0.5f, 1f);
+            titulo.anchoredPosition = Vector2.zero;
+            titulo.sizeDelta = new Vector2(0f, 46f);
+        }
+
+        RectTransform total = panelVentas.Find("TextoTotal") as RectTransform;
+        if (total != null)
+        {
+            total.anchorMin = Vector2.zero;
+            total.anchorMax = new Vector2(1f, 0f);
+            total.pivot = new Vector2(0.5f, 0f);
+            total.anchoredPosition = Vector2.zero;
+            total.sizeDelta = new Vector2(0f, 48f);
+        }
+
+        RectTransform scroll = panelVentas.Find("ScrollVentas") as RectTransform;
+        if (scroll != null)
+        {
+            scroll.anchorMin = Vector2.zero;
+            scroll.anchorMax = Vector2.one;
+            scroll.pivot = new Vector2(0.5f, 0.5f);
+            scroll.offsetMin = new Vector2(8f, 54f);
+            scroll.offsetMax = new Vector2(-8f, -52f);
+            scroll.localScale = Vector3.one;
+        }
+    }
+
+    private static void ConfigurarPanelProductos(RectTransform panelProductos)
+    {
+        if (panelProductos == null)
+            return;
+
+        RectTransform scroll = panelProductos.Find("ScrollProductos") as RectTransform;
+        if (scroll == null)
+            return;
+
+        scroll.anchorMin = Vector2.zero;
+        scroll.anchorMax = Vector2.one;
+        scroll.pivot = new Vector2(0.5f, 0.5f);
+        scroll.offsetMin = new Vector2(8f, 8f);
+        scroll.offsetMax = new Vector2(-8f, -8f);
+        scroll.localScale = Vector3.one;
     }
 
     private static void ConfigurarItem(GameObject item)

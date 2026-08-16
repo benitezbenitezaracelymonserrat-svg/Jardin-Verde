@@ -6,6 +6,16 @@ using UnityEngine.AI;
 [RequireComponent(typeof(NavMeshAgent))]
 public class Animal : MonoBehaviour
 {
+    private static PlayerController jugadorCompartido;
+    private static Collider[] collidersJugadorCompartidos;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ReiniciarCacheCompartida()
+    {
+        jugadorCompartido = null;
+        collidersJugadorCompartidos = null;
+    }
+
     [Header("Animacion")]
     public Animator animator;
     public string speedParam = "speed";
@@ -167,13 +177,41 @@ public class Animal : MonoBehaviour
     {
         agent = GetComponent<NavMeshAgent>();
         audioSource = GetComponent<AudioSource>();
-        if (animator == null) animator = GetComponent<Animator>();
+        if (animator == null)
+            animator = GetComponentInChildren<Animator>(true);
+
+        if (agent != null)
+        {
+            // Evita que todos los animales resuelvan el NavMesh en el mismo frame.
+            agent.avoidancePriority = 35 + Mathf.Abs(GetInstanceID() % 45);
+        }
+
+        if (audioSource != null)
+        {
+            // Los sonidos de un corral solo se oyen al estar cerca y no
+            // saturan toda la mezcla del mapa.
+            audioSource.playOnAwake = false;
+            audioSource.spatialBlend = 1f;
+            audioSource.dopplerLevel = 0f;
+            audioSource.rolloffMode = AudioRolloffMode.Linear;
+            audioSource.minDistance = 1.5f;
+            audioSource.maxDistance = 12f;
+        }
+
+        IgnorarColisionesConJugador();
         ConfigurarProductoSegunAnimal();
-        temporizadorWander = tiempoEntreWander;
+        temporizadorWander = UnityEngine.Random.Range(
+            0.35f,
+            Mathf.Max(0.5f, tiempoEntreWander + 1f)
+        );
         puntoCentral = centroCorral != null
        ? centroCorral.position
        : transform.position;
-        StartCoroutine(SonidoAmbienteLoop());
+        if (audioSource != null && sonidosAmbiente != null &&
+            sonidosAmbiente.Length > 0)
+        {
+            StartCoroutine(SonidoAmbienteLoop());
+        }
         ActualizarVisual();
     }
 
@@ -321,6 +359,44 @@ public class Animal : MonoBehaviour
         }
 
         ActualizarVisual();
+    }
+
+    private void IgnorarColisionesConJugador()
+    {
+        if (jugadorCompartido == null)
+        {
+            jugadorCompartido = FindFirstObjectByType<PlayerController>(
+                FindObjectsInactive.Include
+            );
+        }
+
+        if (jugadorCompartido == null)
+            return;
+
+        Collider[] colisionesAnimal =
+            GetComponentsInChildren<Collider>(true);
+
+        if (collidersJugadorCompartidos == null)
+        {
+            collidersJugadorCompartidos =
+                jugadorCompartido.GetComponentsInChildren<Collider>(true);
+        }
+
+        foreach (Collider colisionAnimal in colisionesAnimal)
+        {
+            if (colisionAnimal == null || colisionAnimal.isTrigger)
+                continue;
+
+            foreach (Collider colisionJugador in collidersJugadorCompartidos)
+            {
+                if (colisionJugador != null)
+                    Physics.IgnoreCollision(
+                        colisionAnimal,
+                        colisionJugador,
+                        true
+                    );
+            }
+        }
     }
 
     public void BloquearParaOrdeno(bool bloquear)

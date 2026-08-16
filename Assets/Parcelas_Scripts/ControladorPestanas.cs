@@ -26,6 +26,14 @@ public class ControladorPestanas : MonoBehaviour
         panelProductos.SetActive(true);
         panelVentas.SetActive(false);
         ActualizarColores(true);
+
+        // La lista comienza siempre arriba para mostrar los primeros productos.
+        ScrollRect scroll = panelProductos.GetComponentInChildren<ScrollRect>(true);
+        if (scroll != null)
+        {
+            Canvas.ForceUpdateCanvases();
+            scroll.verticalNormalizedPosition = 1f;
+        }
     }
 
     public void MostrarVentas()
@@ -33,6 +41,7 @@ public class ControladorPestanas : MonoBehaviour
         panelProductos.SetActive(false);
         panelVentas.SetActive(true);
         ActualizarColores(false);
+        GestorNivel3.RefrescarHistorialGlobal();
     }
 
     void ActualizarColores(bool productosActivo)

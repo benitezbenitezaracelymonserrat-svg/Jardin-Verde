@@ -24,6 +24,8 @@ public class GestorNivel2 : MonoBehaviour
 
     public static GestorNivel2 Instancia { get; private set; }
     public static bool NivelActivo => Instancia != null && Instancia.nivelActivo;
+    public static float Progreso01 =>
+        Instancia != null ? Instancia.CalcularProgreso01() : 0f;
 
     private const int ObjetivoHuevos = 12;
     private const int ObjetivoLecheVaca = 6;
@@ -141,9 +143,12 @@ public class GestorNivel2 : MonoBehaviour
         PrepararProductosGanaderos();
         ConfigurarInteracciones();
         ConfigurarPuertasCorrales();
+        CorralTransitableNivel2.Preparar();
         TeletransportarJugador();
         ConstruirInterfaz();
         ActualizarInterfaz();
+
+        CinematicaNiveles.ReproducirNivel2();
 
         Debug.Log(
             $"Nivel 2 iniciado: {objetivoCajas} cajas, " +
@@ -303,43 +308,140 @@ public class GestorNivel2 : MonoBehaviour
         animal.BloquearParaOrdeno(true);
 
         Transform puntoOrdeno = animal.PuntoOrdeno;
-        if (puntoOrdeno != null)
-        {
-            if (character != null)
-                character.enabled = false;
+        if (character != null)
+            character.enabled = false;
 
-            jugador.position = puntoOrdeno.position;
-            Vector3 direccion = animal.transform.position - jugador.position;
-            direccion.y = 0f;
-            if (direccion.sqrMagnitude > 0.001f)
-                jugador.rotation = Quaternion.LookRotation(direccion.normalized);
+        Vector3 posicionOrdeno = CalcularPuntoOrdenoSeguro(
+            animal,
+            puntoOrdeno
+        );
+        jugador.position = posicionOrdeno;
 
-            if (character != null)
-                character.enabled = true;
-        }
+        Vector3 direccion = animal.transform.position - jugador.position;
+        direccion.y = 0f;
+        if (direccion.sqrMagnitude > 0.001f)
+            jugador.rotation = Quaternion.LookRotation(direccion.normalized);
+
+        if (character != null)
+            character.enabled = true;
 
         Animator animatorJugador = interaccion.animator;
         if (animatorJugador != null && TieneParametro(animatorJugador, "Ordenar"))
-        {
             animatorJugador.ResetTrigger("Ordenar");
-            animatorJugador.SetTrigger("Ordenar");
-        }
-        else
-        {
-            Debug.LogWarning("El Animator del granjero no contiene el Trigger Ordenar.");
-        }
+
+        // Se muestra una simulacion estable en pantalla en vez del clip que
+        // deformaba la pose y hundia al personaje bajo el terreno.
+        SimulacionOrdenoUI.Mostrar(
+            DuracionOrdeno,
+            animal.TipoProducto == "LecheCabra"
+        );
 
         yield return new WaitForSeconds(DuracionOrdeno);
 
-        asignacion.balde.MostrarEn(animal.PuntoBalde);
+        // El control vuelve antes de crear el producto. Así, incluso si un
+        // balde quedó sin referencia, el jugador nunca queda inmovilizado.
+        if (movimiento != null)
+            movimiento.enabled = true;
+
+        if (asignacion.balde != null)
+            asignacion.balde.MostrarEn(animal.PuntoBalde);
+        else
+            Debug.LogWarning($"Nivel 2: {animal.name} no tiene balde asignado.");
+
         animal.ConsumirProduccionNivel2();
         animal.BloquearParaOrdeno(false);
 
         asignacion.enProceso = false;
         asignacion.completado = true;
 
-        if (movimiento != null)
-            movimiento.enabled = true;
+    }
+
+    private static Vector3 CalcularPuntoOrdenoSeguro(
+        Animal animal,
+        Transform puntoMarcado)
+    {
+        Vector3 centro = animal.transform.position;
+        Vector3 lado = puntoMarcado != null
+            ? puntoMarcado.position - centro
+            : -animal.transform.right;
+        lado.y = 0f;
+
+        // Varios PuntoOrdeno están en el propio pivote del animal. Se conserva
+        // el lado indicado, pero se aplica una distancia exterior real.
+        if (lado.sqrMagnitude < 0.0025f)
+            lado = -animal.transform.right;
+        lado.Normalize();
+
+        Bounds limites = new Bounds(centro, Vector3.one * 0.4f);
+        bool encontroRenderer = false;
+        Renderer[] renderers =
+            animal.GetComponentsInChildren<Renderer>(true);
+
+        foreach (Renderer rendererAnimal in renderers)
+        {
+            if (rendererAnimal == null || !rendererAnimal.enabled)
+                continue;
+
+            if (!encontroRenderer)
+            {
+                limites = rendererAnimal.bounds;
+                encontroRenderer = true;
+            }
+            else
+            {
+                limites.Encapsulate(rendererAnimal.bounds);
+            }
+        }
+
+        float radioEnDireccion =
+            Mathf.Abs(lado.x) * limites.extents.x +
+            Mathf.Abs(lado.z) * limites.extents.z;
+        float distancia = Mathf.Clamp(radioEnDireccion + 0.72f, 1.05f, 2.35f);
+
+        Vector3 puntoExterior = limites.center + lado * distancia;
+        puntoExterior.y = puntoMarcado != null
+            ? puntoMarcado.position.y
+            : centro.y;
+
+        return AjustarPuntoOrdenoAlSuelo(puntoExterior);
+    }
+
+    private static Vector3 AjustarPuntoOrdenoAlSuelo(Vector3 puntoDeseado)
+    {
+        NavMeshHit puntoValido;
+        Vector3 origenBusqueda = puntoDeseado + Vector3.up * 1.5f;
+
+        if (NavMesh.SamplePosition(
+                origenBusqueda,
+                out puntoValido,
+                4f,
+                NavMesh.AllAreas))
+        {
+            return puntoValido.position + Vector3.up * 0.06f;
+        }
+
+        RaycastHit[] impactos = Physics.RaycastAll(
+            puntoDeseado + Vector3.up * 5f,
+            Vector3.down,
+            12f,
+            ~0,
+            QueryTriggerInteraction.Ignore
+        );
+
+        foreach (RaycastHit impacto in impactos.OrderBy(i => i.distance))
+        {
+            if (impacto.collider == null ||
+                impacto.collider.GetComponentInParent<Animal>() != null ||
+                impacto.normal.y < 0.55f)
+            {
+                continue;
+            }
+
+            puntoDeseado.y = impacto.point.y + 0.06f;
+            return puntoDeseado;
+        }
+
+        return puntoDeseado;
     }
 
     private static bool TieneParametro(Animator animator, string nombre)
@@ -765,6 +867,20 @@ public class GestorNivel2 : MonoBehaviour
             panelDesafios.SetActive(true);
             panelDesafios.transform.SetAsLastSibling();
         }
+    }
+
+    private float CalcularProgreso01()
+    {
+        int total = Mathf.Max(1,
+            objetivoCajas + ObjetivoHuevos +
+            ObjetivoLecheVaca + ObjetivoLecheCabra);
+        int actual =
+            Mathf.Min(cajasRecogidas, objetivoCajas) +
+            Mathf.Min(huevosRecogidos, ObjetivoHuevos) +
+            Mathf.Min(lecheVacaRecogida, ObjetivoLecheVaca) +
+            Mathf.Min(lecheCabraRecogida, ObjetivoLecheCabra);
+
+        return Mathf.Clamp01(actual / (float)total);
     }
 
     private GameObject CrearBotonNivel3(Transform padre)
