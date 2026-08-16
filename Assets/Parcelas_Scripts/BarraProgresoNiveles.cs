@@ -10,6 +10,7 @@ using UnityEngine.UI;
 public class BarraProgresoNiveles : MonoBehaviour
 {
     private GameObject raizUI;
+    private GameObject canvasUI;
     private Image relleno;
     private TextMeshProUGUI texto;
     private float progresoVisual;
@@ -48,7 +49,11 @@ public class BarraProgresoNiveles : MonoBehaviour
         }
 
         bool manualAbierto = panelManual != null && panelManual.activeInHierarchy;
-        bool mostrar = !CinematicaIntro.cinematicaActiva && !manualAbierto;
+        // La cinemática puede mantener su bandera activa unos instantes aun
+        // después de devolver el control al jugador. La barra no debe quedar
+        // bloqueada por ese estado; solo se oculta mientras el manual ocupa
+        // la pantalla.
+        bool mostrar = !manualAbierto;
         raizUI.SetActive(mostrar);
 
         if (!mostrar)
@@ -79,9 +84,29 @@ public class BarraProgresoNiveles : MonoBehaviour
 
     private void Construir()
     {
-        Canvas canvas = FindFirstObjectByType<Canvas>();
-        if (canvas == null)
-            return;
+        // La escena activa y desactiva sus Canvas durante la cinemática y el
+        // manual. Usar uno de ellos hacía que la barra quedara invisible si
+        // se construía mientras ese Canvas estaba desactivado. Un Canvas
+        // propio mantiene la barra independiente del resto de la interfaz.
+        canvasUI = new GameObject(
+            "CanvasBarraProgreso",
+            typeof(RectTransform),
+            typeof(Canvas),
+            typeof(CanvasScaler)
+        );
+        int capaUI = LayerMask.NameToLayer("UI");
+        if (capaUI >= 0)
+            canvasUI.layer = capaUI;
+
+        Canvas canvas = canvasUI.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 1000;
+
+        CanvasScaler escalador = canvasUI.GetComponent<CanvasScaler>();
+        escalador.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        escalador.referenceResolution = new Vector2(1920f, 1080f);
+        escalador.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+        escalador.matchWidthOrHeight = 0.5f;
 
         raizUI = new GameObject(
             "BarraProgresoNivel",
@@ -89,8 +114,8 @@ public class BarraProgresoNiveles : MonoBehaviour
             typeof(CanvasRenderer),
             typeof(Image)
         );
-        raizUI.layer = canvas.gameObject.layer;
-        raizUI.transform.SetParent(canvas.transform, false);
+        raizUI.layer = canvasUI.layer;
+        raizUI.transform.SetParent(canvasUI.transform, false);
 
         RectTransform rect = raizUI.GetComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.5f, 1f);
