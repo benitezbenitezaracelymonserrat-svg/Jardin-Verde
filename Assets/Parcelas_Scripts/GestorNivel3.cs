@@ -1120,7 +1120,7 @@ public class GestorNivel3 : MonoBehaviour
 
     private void ConstruirInterfaz()
     {
-        Canvas canvas = FindFirstObjectByType<Canvas>();
+        Canvas canvas = CanvasJuegoUI.BuscarInteractivo();
         if (canvas == null)
             return;
 

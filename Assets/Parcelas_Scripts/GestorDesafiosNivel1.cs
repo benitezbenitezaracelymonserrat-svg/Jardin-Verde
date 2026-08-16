@@ -125,7 +125,7 @@ public class GestorDesafiosNivel1 : MonoBehaviour
 
     private void ConstruirInterfaz()
     {
-        Canvas canvas = FindFirstObjectByType<Canvas>();
+        Canvas canvas = CanvasJuegoUI.BuscarInteractivo();
 
         if (canvas == null)
         {

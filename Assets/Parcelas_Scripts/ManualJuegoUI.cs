@@ -100,7 +100,7 @@ public class ManualJuegoUI : MonoBehaviour
 
     private void ConstruirManual()
     {
-        Canvas canvas = FindFirstObjectByType<Canvas>();
+        Canvas canvas = CanvasJuegoUI.BuscarInteractivo();
         if (canvas == null)
             return;
 

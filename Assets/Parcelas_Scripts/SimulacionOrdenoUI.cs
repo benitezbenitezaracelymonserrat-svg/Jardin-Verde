@@ -75,7 +75,7 @@ public class SimulacionOrdenoUI : MonoBehaviour
 
     private void Construir()
     {
-        Canvas canvas = FindFirstObjectByType<Canvas>();
+        Canvas canvas = CanvasJuegoUI.BuscarInteractivo();
         if (canvas == null)
             return;
 

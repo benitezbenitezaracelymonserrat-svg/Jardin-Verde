@@ -525,7 +525,7 @@ public class GestorNivel2 : MonoBehaviour
                 interaccion.SeleccionarCanasta();
         }
 
-        Canvas canvas = FindFirstObjectByType<Canvas>();
+        Canvas canvas = CanvasJuegoUI.BuscarInteractivo();
         if (canvas == null)
             return;
 
@@ -691,7 +691,7 @@ public class GestorNivel2 : MonoBehaviour
 
     private void ConstruirInterfaz()
     {
-        Canvas canvas = FindFirstObjectByType<Canvas>();
+        Canvas canvas = CanvasJuegoUI.BuscarInteractivo();
         if (canvas == null)
             return;
 

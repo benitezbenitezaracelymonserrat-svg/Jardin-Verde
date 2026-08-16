@@ -126,6 +126,7 @@ public class BarraProgresoNiveles : MonoBehaviour
 
         Image fondo = raizUI.GetComponent<Image>();
         fondo.color = new Color(0.20f, 0.10f, 0.035f, 0.94f);
+        fondo.raycastTarget = false;
         Outline borde = raizUI.AddComponent<Outline>();
         borde.effectColor = new Color(0.73f, 0.43f, 0.16f, 1f);
         borde.effectDistance = new Vector2(2f, -2f);
@@ -146,6 +147,7 @@ public class BarraProgresoNiveles : MonoBehaviour
 
         relleno = rellenoObjeto.GetComponent<Image>();
         relleno.color = new Color(0.30f, 0.70f, 0.28f, 1f);
+        relleno.raycastTarget = false;
         relleno.type = Image.Type.Filled;
         relleno.fillMethod = Image.FillMethod.Horizontal;
         relleno.fillOrigin = (int)Image.OriginHorizontal.Left;

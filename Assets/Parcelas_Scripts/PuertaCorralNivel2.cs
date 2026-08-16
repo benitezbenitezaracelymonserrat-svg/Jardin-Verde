@@ -237,7 +237,7 @@ public class PuertaCorralNivel2 : MonoBehaviour
         if (avisoCompartido != null)
             return;
 
-        Canvas canvas = FindFirstObjectByType<Canvas>();
+        Canvas canvas = CanvasJuegoUI.BuscarInteractivo();
         if (canvas == null)
             return;
 
